@@ -37,14 +37,20 @@ K50_1 = "COCO-Keypoints/keypoint_rcnn_R_50_FPN_1x"
 K50_3 = "COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x"
 K101 = "COCO-Keypoints/keypoint_rcnn_R_101_FPN_3x"
 KX101 = "COCO-Keypoints/keypoint_rcnn_X_101_32x8d_FPN_3x"
-PRETRAIN_WEIGHT_NAME = K50_1
+
 
 K50_3_path = "COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x.yaml"
 K101_path = "COCO-Keypoints/keypoint_rcnn_R_101_FPN_3x.yaml"
 DETECT_config1 = "ICSI-DETECTION/SP_keypoint_rcnn_R_101_FPN_3x.yaml"
 DETECT_config2 = "ICSI-DETECTION/SP_keypoint_rcnn_R_50_FPN_3x.yaml"
-TRAIN_WEIGHT_CONF = K50_3_path
 
+TRAIN_WEIGHT_CONF = K50_3_path
+PRETRAIN_WEIGHT_NAME  = TRAIN_WEIGHT_CONF[:-5]
+
+
+#*********************************************
+DATA_SET_NAME = "sp15"
+#*********************************************
 
 
 #  DATA K101_3
@@ -292,11 +298,11 @@ def train(cfg, train_dataset=None, test_dataset=None ,resume=False, model_weight
     cfg.TEST.KEYPOINT_OKS_SIGMAS = np.ones((4, 1), dtype=float).tolist()
     
     cfg.DATASETS.TEST = ()
-    cfg.DATALOADER.NUM_WORKERS = 4
-    cfg.SOLVER.IMS_PER_BATCH = 8
-    cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
+    cfg.DATALOADER.NUM_WORKERS = 36
+    cfg.SOLVER.IMS_PER_BATCH = 128
+    cfg.SOLVER.BASE_LR = 0.0025  # pick a good LR
     cfg.SOLVER.MAX_ITER = 90000
-    cfg.SOLVER.CHECKPOINT_PERIOD = 5000
+    cfg.SOLVER.CHECKPOINT_PERIOD = 10000
     cfg.SOLVER.MAX_ITER = 100000
     #cfg.SOLVER.IMS_PER_BATCH = 64
     
@@ -399,16 +405,13 @@ def on_image(image_path, outputs_dir, predictor):
     cv2.imwrite(os.path.join(outputs_dir, os.path.basename(image_path)), v.get_image()[:, :, ::-1])
 
 def train_from_zero():
-    
-    DATA_SET_NAME = "sp12"
     #print("Base_dir:", BASE_DIR)
     cfg = init_keypoints(DATA_SET_NAME,
                          fullpath_coco_train_json=os.path.join(BASE_DIR, LABEL_DIR),
                          fullpath_coco_train_images=os.path.join(BASE_DIR, IMAGE_DIR))
-    train(cfg, train_dataset=None, test_dataset=None , resume=False, model_weight=None, config_file=PRETRAIN_WEIGHT_NAME)
-    
+    train(cfg, train_dataset=None, test_dataset=None , resume=False, model_weight=None, config_file=TRAIN_WEIGHT_CONF)
+
 def start_train():
-    DATA_SET_NAME = "sp12"
     #print("Base_dir:", BASE_DIR)
     cfg = init_keypoints(DATA_SET_NAME,
                          fullpath_coco_train_json=os.path.join(BASE_DIR, LABEL_DIR),
@@ -419,7 +422,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', type=str, default="train", help='train,resume, detect')
     parser.add_argument('--basedir', type=str, default=BASE_DIR, help='base dir')
-    parser.add_argument('--dataset', type=str, default='sp12', help='dataset name')
+    parser.add_argument('--dataset', type=str, default=None, help='this option is deprecated')
     parser.add_argument('--interactive', type=bool, default=True, help='interactive mode')
     parser.add_argument('--weight', type=str, default='model_final.pth', help='model weight')
     parser.add_argument('--output', type=str, default='output', help='output dir')
@@ -432,7 +435,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     mode = args.mode
     BASE_DIR = args.basedir
-    DATA_SET_NAME = args.dataset
+
+    if args.dataset:
+        DATA_SET_NAME = args.dataset
+        
     INTERACTIVE = args.interactive
     WEIGHT = args.weight
     OUTPUT_DIR = args.output
@@ -498,15 +504,15 @@ if __name__ == "__main__":
         
         if answer == "y":
 
-            train(cfg, train_dataset=None, test_dataset=None , resume=False, model_weight=None, config_file=TRAIN_WEIGHT_CONF)
+            #train(cfg, train_dataset=None, test_dataset=None , resume=False, model_weight=None, config_file=TRAIN_WEIGHT_CONF)
     
-            # launch(
-            #     train_from_zero,
-            #     4,
-            #     num_machines = 1,
-            #     machine_rank = 0,
-            #     dist_url = 'auto'
-            #     )
+            launch(
+                train_from_zero,
+                4,
+                num_machines = 1,
+                machine_rank = 0,
+                dist_url = 'auto'
+                )
         else:
             print("No training is done.")
 

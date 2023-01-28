@@ -1,6 +1,7 @@
 _BASE_: "Base-Keypoint-RCNN-FPN.yaml"
 MODEL:
-  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
+  #WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
+  WEIGHTS: "COCO-Keypoints/keypoint_rcnn_R_50_FPN_3x"
   RESNETS:
     DEPTH: 50
 SOLVER:
