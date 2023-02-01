@@ -29,6 +29,15 @@ All you have to read is keypoint.py which is used training and inference.
   python keypoint.py --mode train
 ```
 
+## Ressume training
+```shell
+  # ressume training from outpoint/model_*****.pth, 
+  # so you have to make symbolic link to model_final.pth
+  ln -fs outpoint/model_*****.pth model_final.pth
+
+  python keypoint.py --mode resume  # train model_final.pth
+```
+
 ### other options
 ```python
  parser = argparse.ArgumentParser()
@@ -46,4 +55,37 @@ All you have to read is keypoint.py which is used training and inference.
 
 ```
 
+## Result
+
+'''shell
+Prediction time: 1.4778940677642822
+Predicted image saved to: output/Image0005.png
+Predicting image: 20230109keypoints_test/images/Image0001.png
+Prediction time: 1.1717393398284912
+Predicted image saved to: output/Image0001.png
+Predicting image: 20230109keypoints_test/images/Image0003.png
+Prediction time: 1.220320463180542
+Predicted image saved to: output/Image0003.png
+Predicting image: 20230109keypoints_test/images/Image0002.png
+Prediction time: 1.1189265251159668
+Predicted image saved to: output/Image0002.png
+Predicting image: 20230109keypoints_test/images/Image0008.png
+Prediction time: 1.1416430473327637
+Predicted image saved to: output/Image0008.png
+Predicting image: 20230109keypoints_test/images/Image0006.png
+Prediction time: 1.1780552864074707
+Predicted image saved to: output/Image0006.png
+Predicting image: 20230109keypoints_test/images/Image0009.png
+Prediction time: 1.1545233726501465
+Predicted image saved to: output/Image0009.png
+Predicting image: 20230109keypoints_test/images/Image0004.png
+Prediction time: 1.2353529930114746
+Predicted image saved to: output/Image0004.png
+Predicting image: 20230109keypoints_test/images/Image0007.png
+Prediction time: 1.3687193393707275
+Predicted image saved to: output/Image0007.png
+Predicting image: 20230109keypoints_test/images/Image0010.png
+Prediction time: 1.261420488357544
+Predicted image saved to: output/Image0010.png
+```
 

@@ -78,7 +78,9 @@ class MyTrainer(DefaultTrainer):
         my_augmentations = [
         T.RandomBrightness(0.9, 1.1),
         T.RandomContrast(0.9, 1.1),
-        T.RandomFlip(prob=0.5),
+        T.RandomFlip(prob=0.5), 
+        #T.ResizeScale((0.9, 4, 640, 640), interpolation=cv2.INTER_LINEAR),
+        #T.RandomCrop_CategoryAreaConstraint("absolute", (256, 256), 0.8, 1.2),
         T.RandomCrop("absolute", (256, 256)),
         T.RandomRotation(angle=[-90, 90])
         ]
@@ -257,6 +259,7 @@ def train(cfg, train_dataset=None, test_dataset=None ,resume=False, model_weight
     #cfg.MODEL.DEVICE = "cpu"
     cfg.MODEL.DEVICE = "cuda"
     
+
     if model_weight == None:
         cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(K50_3)
         cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(config_file)
@@ -289,7 +292,6 @@ def train(cfg, train_dataset=None, test_dataset=None ,resume=False, model_weight
     cfg.MODEL.ROI_KEYPOINT_HEAD.POOLER_TYPE = "ROIAlignV2"
     #  - use 4.0 if NORMALIZE_LOSS_BY_VISIBLE_KEYPOINTS is False
     cfg.MODEL.ROI_KEYPOINT_HEAD.LOSS_WEIGHT = 1.0
-    cfg.MODEL.ROI_KEYPOINT_HEAD.NUM_KEYPOINTS = 4
     cfg.MODEL.KEYPOINT_ON = True
     cfg.MODEL.ROI_KEYPOINT_HEAD.NUM_KEYPOINTS = 4
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 2
@@ -299,14 +301,19 @@ def train(cfg, train_dataset=None, test_dataset=None ,resume=False, model_weight
     
     cfg.DATASETS.TEST = ()
     cfg.DATALOADER.NUM_WORKERS = 36
-    cfg.SOLVER.IMS_PER_BATCH = 128
-    cfg.SOLVER.BASE_LR = 0.0025  # pick a good LR
+    cfg.SOLVER.IMS_PER_BATCH = 64
+    cfg.SOLVER.BASE_LR = 0.01  # pick a good LR
     cfg.SOLVER.MAX_ITER = 90000
-    cfg.SOLVER.CHECKPOINT_PERIOD = 10000
-    cfg.SOLVER.MAX_ITER = 100000
+    cfg.SOLVER.CHECKPOINT_PERIOD = 5001
     #cfg.SOLVER.IMS_PER_BATCH = 64
     
     
+    if resume:
+        cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
+        print('*************************************************************')
+        print("resume training for ",cfg.MODEL.WEIGHTS, "...")
+        print("weight gonna be save at ",cfg.OUTPUT_DIR)
+        print('*************************************************************')
 
     #trainer = DefaultTrainer(cfg)    #CocoTrainer(cfg)
     trainer = MyTrainer(cfg)    #CocoTrainer(cfg)
@@ -431,11 +438,11 @@ if __name__ == "__main__":
     parser.add_argument('--config', type=str, default=TRAIN_WEIGHT_CONF, help='config file')
     parser.add_argument('--label', type=str, default=LABEL_DIR, help='label name relative to base dir')
     parser.add_argument('--image', type=str, default="annotations/images", help='training images dir')
-
+    parser.add_argument('--device', type=str, default="cuda", help='device')
     args = parser.parse_args()
     mode = args.mode
     BASE_DIR = args.basedir
-
+    DEVICE = args.device
     if args.dataset:
         DATA_SET_NAME = args.dataset
         
@@ -474,7 +481,8 @@ if __name__ == "__main__":
                 model_weight=DEFAULT_WEIGHT,
                 config_file=DETECT_config2,
                 sample=SAMPLES,
-                output_dir=OUTPUT_DIR, device="cpu")
+                output_dir=OUTPUT_DIR, 
+                device=DEVICE)
 
     # train
     elif mode == "train":
@@ -503,9 +511,7 @@ if __name__ == "__main__":
             answer = "y"
         
         if answer == "y":
-
             #train(cfg, train_dataset=None, test_dataset=None , resume=False, model_weight=None, config_file=TRAIN_WEIGHT_CONF)
-    
             launch(
                 train_from_zero,
                 4,
@@ -524,6 +530,7 @@ if __name__ == "__main__":
             answer = "y"
 
         if answer == "y":
+            #print('resume training weight name shoud be like manually written in')
             launch(
                 start_train,
                 4,
