@@ -54,7 +54,7 @@ DATA_SET_NAME = "sp15"
 
 
 #  DATA K101_3
-BASE_DIR = '/home/ssm-user/detectron2/20230104keypoints'
+BASE_DIR = '/home/icsiauto/detectron2/20230104keypoints'
 LABEL_DIR = "annotations/person_keypoints_default.json"
 IMAGE_DIR = "images"
 
@@ -111,7 +111,6 @@ class SPVisualizer(Visualizer):
         """
 
         visible = {}
-        
         keypoint_names = self.metadata.get("keypoint_names")
         keypoints = self._convert_keypoints(keypoints)
         for idx, keypoint in enumerate(keypoints):
@@ -129,7 +128,6 @@ class SPVisualizer(Visualizer):
                     else:
                         #self.draw_text(keypoint_name, (x, y), color=_BLUE)
                         self.draw_circle((x, y), color=_BLUE)
-                        
                 else:
                     self.draw_circle((x, y), color=_BLUE)
 
@@ -170,7 +168,6 @@ def init_keypoints(DATA_SET_NAME,
                    config_file=TRAIN_WEIGHT_CONF,
                    output_dir="./output",
                    mode="train"):
-
     # check config_file is valid
     config_file = os.path.join('./configs', config_file)
     assert os.path.exists(config_file), \
@@ -190,7 +187,6 @@ def init_keypoints(DATA_SET_NAME,
         if not fullpath_coco_train_images:
             assert os.path.exists(fullpath_coco_train_images), \
             "*** ArgumentCheckErorr Annotations not found at {}".format(fullpath_coco_train_images)
-        
         register_dataset(DATA_SET_NAME, fullpath_coco_train_json, fullpath_coco_train_images)
 
     # classes = MetadataCatalog.get("sp09").thing_classes = ["sperm_head","Sperm"]
@@ -241,7 +237,7 @@ def ressume_train(DATA_SET_NAME, cfg, model_weight, config_file=TRAIN_WEIGHT_CON
     assert os.path.exists(model_weight), "Model weight not found at {}".format(model_weight)
     assert os.path.exists(config_file), "Config file not found at {}".format(config_file)
 
-    train(model_weight,cfg, resume=True ,config_file=TRAIN_WEIGHT_CONF)
+    train(model_weight, cfg, resume=True ,config_file=TRAIN_WEIGHT_CONF)
     return cfg
 
 
@@ -254,11 +250,9 @@ def train(cfg, train_dataset=None, test_dataset=None ,resume=False, model_weight
     # model_weight: model weight file to start from
     # model_weight = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")  # path to the model we just trained
     #cfg.merge_from_file(model_zoo.get_config_file(config_file))
-    
     cfg.merge_from_file(model_zoo.get_config_file(config_file))
     #cfg.MODEL.DEVICE = "cpu"
     cfg.MODEL.DEVICE = "cuda"
-    
 
     if model_weight == None:
         cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(K50_3)
@@ -281,8 +275,7 @@ def train(cfg, train_dataset=None, test_dataset=None ,resume=False, model_weight
     else:        
         cfg.DATASETS.TEST = (DATA_SET_NAME,)
     # cfg.DATASETS.TEST = ("hand_test",)  #Dataset 'hand_test' is empty in my case
-    #cfg.DATALOADER.NUM_WORKERS = 12
-        
+    # cfg.DATALOADER.NUM_WORKERS = 12
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
 
@@ -296,23 +289,20 @@ def train(cfg, train_dataset=None, test_dataset=None ,resume=False, model_weight
     cfg.MODEL.ROI_KEYPOINT_HEAD.NUM_KEYPOINTS = 4
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 2
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
-    
     cfg.TEST.KEYPOINT_OKS_SIGMAS = np.ones((4, 1), dtype=float).tolist()
-    
     cfg.DATASETS.TEST = ()
-    cfg.DATALOADER.NUM_WORKERS = 36
-    cfg.SOLVER.IMS_PER_BATCH = 64
+    cfg.DATALOADER.NUM_WORKERS = 2
+    cfg.SOLVER.IMS_PER_BATCH = 16
     cfg.SOLVER.BASE_LR = 0.01  # pick a good LR
     cfg.SOLVER.MAX_ITER = 90000
     cfg.SOLVER.CHECKPOINT_PERIOD = 5001
     #cfg.SOLVER.IMS_PER_BATCH = 64
-    
-    
+
     if resume:
         cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
         print('*************************************************************')
-        print("resume training for ",cfg.MODEL.WEIGHTS, "...")
-        print("weight gonna be save at ",cfg.OUTPUT_DIR)
+        print("resume training for ", cfg.MODEL.WEIGHTS, "...")
+        print("weight gonna be save at ", cfg.OUTPUT_DIR)
         print('*************************************************************')
 
     #trainer = DefaultTrainer(cfg)    #CocoTrainer(cfg)
@@ -321,7 +311,7 @@ def train(cfg, train_dataset=None, test_dataset=None ,resume=False, model_weight
     trainer.train()
 
     return cfg
-    
+
 
 def predict(cfg,
             image_path,
@@ -360,18 +350,18 @@ def predict(cfg,
 
     # defaut config file
     cfg.merge_from_file(model_zoo.get_config_file(config_file))
-    
+
     # override config by args
     cfg.MODEL.WEIGHTS = model_weight
     cfg.MODEL.KEYPOINT_ON = True
     cfg.MODEL.DEVICE = device
-    cfg.TEST.KEYPOINT_OKS_SIGMAS = np.array([1,2,2,2], dtype=float).tolist()    
+    cfg.TEST.KEYPOINT_OKS_SIGMAS = np.array([1,2,2,2], dtype=float).tolist()
     cfg.OUTPUT_DIR = output_dir
     predictor = DefaultPredictor(cfg)
-
+    cfg.DATALOADER.NUM_WORKERS = 2
     if sample <= 0:
         sample = 999999
-    
+
     for i, file in enumerate(os.listdir(image_path)):
         if i > sample:
             break
@@ -386,15 +376,15 @@ def predict(cfg,
             outputs = predictor(im)
             end = time.time()
             print("Prediction time: {}".format(end - start))
-    
+
             v = SPVisualizer(im[:, :, ::-1],
-                           metadata=MetadataCatalog.get(DATA_SET_NAME),
-                           scale=1.5,
-                           instance_mode=ColorMode.SEGMENTATION)
-             
-        v2 = v.draw_instance_predictions(outputs["instances"].to("cpu"))        
+                             metadata=MetadataCatalog.get(DATA_SET_NAME),
+                             scale=1.5,
+                             instance_mode=ColorMode.SEGMENTATION)
+
+        v2 = v.draw_instance_predictions(outputs["instances"].to("cpu"))
         #v2 = v.draw_and_connect_keypoints(keypoints)
-        #v2 = v.draw_and_connect_predictions(outputs["instances"].to("cpu"))        
+        #v2 = v.draw_and_connect_predictions(outputs["instances"].to("cpu"))
         output_pred_image = os.path.join(output_dir, file)
         plt.imsave(output_pred_image, v2.get_image()[:, :, ::-1])
         print("Predicted image saved to: {}".format(output_pred_image))
@@ -424,10 +414,10 @@ def start_train():
                          fullpath_coco_train_json=os.path.join(BASE_DIR, LABEL_DIR),
                          fullpath_coco_train_images=os.path.join(BASE_DIR, IMAGE_DIR))
     train(cfg, resume=True,  model_weight="model_final.pth", config_file=TRAIN_WEIGHT_CONF)
-    
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default="train", help='train,resume, detect')
+    parser.add_argument('--mode', type=str, default="detect", help='train,resume, detect')
     parser.add_argument('--basedir', type=str, default=BASE_DIR, help='base dir')
     parser.add_argument('--dataset', type=str, default=None, help='this option is deprecated')
     parser.add_argument('--interactive', type=bool, default=True, help='interactive mode')
@@ -445,7 +435,7 @@ if __name__ == "__main__":
     DEVICE = args.device
     if args.dataset:
         DATA_SET_NAME = args.dataset
-        
+    
     INTERACTIVE = args.interactive
     WEIGHT = args.weight
     OUTPUT_DIR = args.output
@@ -459,7 +449,7 @@ if __name__ == "__main__":
         print("Default weight file is not found:", DEFAULT_WEIGHT)
         exit(1)
 
-    if mode == "detect": 
+    if mode == "detect":
         print("Base_dir:", BASE_DIR)
 
         if not os.path.exists(os.path.join(BASE_DIR, LABEL)):
@@ -473,7 +463,7 @@ if __name__ == "__main__":
 
         cfg = init_keypoints(DATA_SET_NAME,
                              mode="detect")
-        
+
         image_path = SOURCE_DIR
 
         predict(cfg,
