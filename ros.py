@@ -153,6 +153,8 @@ def register_dataset(name, annotaitions, images, force=False):
     return name
 
 
+
+
 def init_ros():
     global bridge
     global spc
@@ -184,7 +186,7 @@ def init_ros():
     pub_i = rospy.Publisher('sperm_detection_image', Image, queue_size=10)
 
     pub2 = rospy.Publisher('needle_twist', Twist, queue_size=10)
-    pub2_i = rospy.Publisher('needle_twist_image', Image, queue_size=10)
+    pub2_i = rospy.Publisher('needle_image', Image, queue_size=10)
 
     bridge = CvBridge()
     spc = 0
@@ -202,7 +204,7 @@ def core_predict(im, MetadataCatalog, visualize=True):
                 
         #output_pred_image = os.path.join("/tmp","debug_image.png")
         #plt.imsave(output_pred_image, v2.get_image()[:, :, ::-1])
-        print("Predicted image saved to: {}".format(output_pred_image))
+        #print("Predicted image saved to: {}".format(output_pred_image))
     else:
         v2 = None
     return outputs, v2
@@ -236,6 +238,14 @@ def callback_ros(message):
     print(message.header.frame_id + " : " + str(message.header.seq) + " : " + str(message.header.stamp))
     im = bridge.imgmsg_to_cv2(message, desired_encoding='passthrough')
 
+
+
+    # convert gray to RGB
+    im = cv2.cvtColor(im, cv2.COLOR_GRAY2RGB)
+    
+
+    template_matching(im,'template.png')
+
     outputs, v = core_predict(im, MetadataCatalog)
     twists = get_keypoints(outputs, key_num=2)
 
@@ -243,8 +253,10 @@ def callback_ros(message):
         for twist in twists:
             pub.publish(twist)
         cv_image_dst = v.get_image()[:, :, ::-1]
-        msg_i_ = bridge.cv2_to_imgmsg(im, encoding="bgr8")
+        msg_i_ = bridge.cv2_to_imgmsg(cv_image_dst, encoding="bgr8")
         pub_i.publish(msg_i_)
+
+        # display ros topic of msg
 
     else:
         print('no target found')
@@ -312,20 +324,46 @@ def init_keypoints(DATA_SET_NAME,
     return cfg
 
 
-def template_matching(image, template_image='needle.png' , method='cv2.TM_CCOEFF_NORMED'):
+def template_matching(image, template_image='template.png' , method=cv2.TM_CCORR_NORMED):
     global pub2
     global twist_n
 
     # convert image to gray if RGB
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # load template image
+    template_image = cv2.imread(template_image, 0)
+
+
     res = cv2.matchTemplate(gray, template_image, method)
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
 
-    # twist value change using min_loc and max_loc
-    avg = (min_loc + max_loc) // 2
-    twist.linear.x = avg[0]
-    twist.linear.y = avg[1]
+
+########################################################################################
+    w =3
+    no = 0
+    sz = image.shape
+    
+    disp_im=cv2.resize(image, (int(sz[1] / w / 2.0)*2, int(sz[0] / w / 2.0)*2))
+    # cv2.putText( disp_im, str(no), (10, 40), 
+    #         fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+    #         fontScale=1.0,
+    #         color=(150, 255, 255),
+    #         thickness=2,
+    #         lineType=cv2.LINE_4)
+    xy=max_loc
+    pt1=(int(xy[0]/w)-int(0/w), int(xy[1]/w)-int(0/w))
+    pt2=(int(xy[0]/w)+int(200/w), int(xy[1]/w)+int(140/w))
+    cv2.rectangle(disp_im, pt1, pt2, (0,0,255), 2,cv2.LINE_4, 0 )
+
+    avg = max_loc
+    twist_n.linear.x = avg[0]
+    twist_n.linear.y = avg[1]
+
+    pub2_i.publish(bridge.cv2_to_imgmsg(disp_im, encoding="bgr8"))
     pub2.publish(twist_n)
+
 
 
 def cv2_imshow(im):
@@ -409,7 +447,8 @@ if __name__ == "__main__":
     parser.add_argument('--label', type=str, default=LABEL_DIR, help='label name relative to base dir')
     parser.add_argument('--image', type=str, default="annotations/images", help='training images dir')
     parser.add_argument('--device', type=str, default="cuda", help='device')
-    parser.add_argument('--sub_image_node', type=str, default="sperm_test_image/image_raw")
+    #parser.add_argument('--sub_image_node', type=str, default="sperm_test_image/image_raw")
+    parser.add_argument('--sub_image_node', type=str, default="/stcamera_node/dev_142122B11642/image_raw")
     #parser.add_argument('--sub_image_node', type=str, default="sperm_test_image")
     parser.add_argument('--mode', type=str, default="ROS")
     args = parser.parse_args()
