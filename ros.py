@@ -2,15 +2,13 @@
 # coding: utf-8
 # Keypoint Detection on ICSI Dataset
 # 2022-12-12: Added data augmentation
-
 DEBUG_MODE = False
-# ROS
-if not DEBUG_MODE:
-    import rospy
-    import roslib
-    from sensor_msgs.msg import Image
-    from geometry_msgs.msg import Twist
-    from cv_bridge import CvBridge
+
+import rospy
+import roslib
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import Twist
+from cv_bridge import CvBridge
 
 import os
 import numpy as np
@@ -172,12 +170,14 @@ def init_ros():
     global spc
     global twist
     global twist_n
+    global phase_info
     global pub, pub_sp2, pub_sp3
     global pub_i
     global pub2, pub2_i
 
     rospy.init_node('sperm_detection2', anonymous=True)
     global pre_boxes
+    phase_info  = 0
     pre_boxes = []
 
     twist = Twist()
@@ -328,6 +328,19 @@ def send_as_twist(matched_scores, matched_keys, send_image=False):
 #        cv_image_dst = v.get_image()[:, :, ::-1]
 #        msg_i_ = bridge.cv2_to_imgmsg(cv_image_dst, encoding="bgr8")
 #        pub_i.publish(msg_i_)
+
+
+def callback_phase_info(message):
+    global phase_info
+    phase_info = message.data
+    print("Phase info: {}".format(phase_info))
+
+    # get angular information form messege (Twist)
+    phase_info = int(message.angular.z)
+    if phase_info <= 100:
+        phase_info = 0
+    else:
+        phase_info = 1
 
 
 def callback_ros(message):
@@ -618,14 +631,13 @@ def visualize_candidate(im, matched_boxes, matched_keys, matched_scores, matched
     return im
 
 
-
 def test_callback_ros(im, fps=DEFAULT_FPS, METRIC="hybrid", hybrid_lambda = 0.7):
     global pre_boxes
     global pre_keys
     global pre_scores
     # Threshold of Life frame
     linger_length = 4
-    
+
     outputs, v = core_predict(im, MetadataCatalog)
     im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
     #plt.figure(figsize=(25, 8)), plt.imshow(im), plt.axis('off')
@@ -634,7 +646,7 @@ def test_callback_ros(im, fps=DEFAULT_FPS, METRIC="hybrid", hybrid_lambda = 0.7)
     v = cv2.cvtColor(v, cv2.COLOR_BGR2RGB)
     #plt.figure(figsize=(10, 4)), plt.imshow(v), plt.axis('off')
     boxes = np.array(outputs["instances"].pred_boxes.tensor.cpu())
-    
+
     keypoints = np.array(outputs["instances"].pred_keypoints.cpu().numpy())
     scores = np.array(outputs["instances"].scores.cpu().numpy()).reshape(-1, 1)
     # chage (n,) -> (n,1)
@@ -864,6 +876,7 @@ def predict(cfg,
             device="cuda",
             video="tst.avi",
             sub_image_node="/sperm_test_image/image_raw",
+            sub_twist_node="/sperm_phase_switch",
             mode = "ROS",
             fps = DEFAULT_FPS
             ):
@@ -872,6 +885,8 @@ def predict(cfg,
     global predictor
     global pre_boxes
     global busy
+    global phase_info   # waitng if attack mode enabled.
+    
     #assert os.path.exists(image_path), "Image not found at {}".format(image_path)
     # assert os.path.exists(config_file), "Config file not found at {}".format(config_file)
 
@@ -897,11 +912,10 @@ def predict(cfg,
     predictor = DefaultPredictor(cfg)
     cfg.DATALOADER.NUM_WORKERS = 0
 
-    
     if mode == "ROS":
         ROS = True
         VIDEO = False
-    
+
     if mode == "VIDEO":
         VIDEO = "tst.avi"
         ROS = False
@@ -909,9 +923,12 @@ def predict(cfg,
     if ROS:
         init_ros()
         busy = False
-        #r = rospy.Rate(fps)
+        # r = rospy.Rate(fps)
         sub = rospy.Subscriber(sub_image_node, Image, callback_ros)
-        #r.sleep()
+        phase_info_sub = rospy.Subscriber(sub_twist_node, 
+                                                                    Twist,
+                                                                    callback_phase_info)
+        # r.sleep()
         rospy.spin()
     else:
         if VIDEO:
@@ -944,7 +961,7 @@ def predict(cfg,
                     print("no previous frame or no sperm detected")
                 else:
                     a, b, c, d = select_best_candidate(a, b, c, d, metric='score')
-                    image = visualize_candidate(im, a, b, c, d, 'predictions', i)
+                    image = visualize_candidate(im, a, b, c, d, 'predictions',  i)
                     #send image
 
                     if not DEBUG_MODE:
