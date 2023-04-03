@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 # Keypoint Detection on ICSI Dataset
-# 2020-12-12: Added data augmentation
-DEBUG_MODE = True
+# 2022-12-12: Added data augmentation
+
+DEBUG_MODE = False
 # ROS
 if not DEBUG_MODE:
     import rospy
@@ -37,6 +38,7 @@ global pre_boxes
 global pre_keys
 global pre_scores
 global count 
+count = 0 
 pre_boxes = []
 pre_keys = []
 pre_scores = []
@@ -54,7 +56,7 @@ DETECT_config2 = "ICSI-DETECTION/SP_keypoint_rcnn_R_50_FPN_3x.yaml"
 DEFAULT_FPS = 20 
 TRAIN_WEIGHT_CONF = K50_3_path
 PRETRAIN_WEIGHT_NAME  = TRAIN_WEIGHT_CONF[:-5]
-
+SCALE= 4
 # *********************************************
 DATA_SET_NAME = "sp15"
 # *********************************************
@@ -173,7 +175,7 @@ def init_ros():
     global pub, pub_sp2, pub_sp3
     global pub_i
     global pub2, pub2_i
-    
+
     rospy.init_node('sperm_detection2', anonymous=True)
     global pre_boxes
     pre_boxes = []
@@ -198,7 +200,6 @@ def init_ros():
     pub_i = rospy.Publisher('sperm_detection_image', Image, queue_size=10)
     pub_sp2 = rospy.Publisher('sperm_detection_twist', Twist, queue_size=10)
     pub_sp3 = rospy.Publisher('sperm_detection_twist', Twist, queue_size=10)
-    
 
     pub2 = rospy.Publisher('needle_twist', Twist, queue_size=10)
     pub2_i = rospy.Publisher('needle_image', Image, queue_size=10)
@@ -284,49 +285,71 @@ def fast_iou_matrix01(pre_box, now_box, dist_thresh=500):
             iou_matrix[i][j] = iou(pre_box[i], now_box[j])
     return iou_matrix
 
+
 def send_image(im, pub):
     global bridge
-    image_message = bridge.cv2_to_imgmsg(im, encoding="passthrough")
+    image_message = bridge.cv2_to_imgmsg(im, encoding="bgr8")
     pub.publish(image_message)
+
 
 def send_as_twist(matched_scores, matched_keys, send_image=False):
     global pub_sp2, pub_sp3
+    global twist
     # if matched_boxes and other value sieze is not the same, it is error
     twists = []
-    for i in range(len(matched_keys)):
+    i = 0
+    for i in range(matched_keys.shape[0]):
         twist = Twist()
-        twist.linear.x = matched_keys[i][1][2][0]
-        twist.linear.y = matched_keys[i][1][2][1]
+        print(matched_keys.shape)
+        try:
+            twist.linear.x = matched_keys[i][1][2][0] #* float(SCALE) 
+            twist.linear.y = matched_keys[i][1][2][1] #* float(SCALE)
+        except:
+            twist.linear.x = matched_keys[0][2][0] #* float(SCALE)
+            twist.linear.y = matched_keys[0][2][1] #* float(SCALE)
+
         twist.linear.z = 0
         twist.angular.x = 0
         twist.angular.y = 0
         twist.angular.z = 0
+        
         twists.append(twist)
 
-    if len(twists) > 0:
-        pub.publish(twist[0])
-    elif len(twists) > 1:
+    if i > 0:
+        pub.publish(twists[0])
+    elif i > 1:
         pub_sp2.publish(twists[1])
-    elif len(twists) > 2:
+    elif i > 2:
         pub_sp3.publish(twists[2])
 
     if send_image:
         pass
         # # image publish
-        # cv_image_dst = v.get_image()[:, :, ::-1]
-        # msg_i_ = bridge.cv2_to_imgmsg(cv_image_dst, encoding="bgr8")
-        # pub_i.publish(msg_i_)
-
+#        cv_image_dst = v.get_image()[:, :, ::-1]
+#        msg_i_ = bridge.cv2_to_imgmsg(cv_image_dst, encoding="bgr8")
+#        pub_i.publish(msg_i_)
 
 
 def callback_ros(message):
+    global busy
+    
+    if busy>0:
+        busy -= 1
+    else:
+        callback_ros_core(message)
+        busy = 3
+
+
+def callback_ros_core(message):
     global spc
     global pub
     global pub_i
     global twist
     global pre_boxes
     global predictor
-    global count 
+    global count
+    global busy
+    busy = 0
     print(message.header.frame_id + " : " + str(message.header.seq) + " : " + str(message.header.stamp))
     im = bridge.imgmsg_to_cv2(message, "bgr8")
 
@@ -339,14 +362,16 @@ def callback_ros(message):
         select_best_candidate(matched_boxes, matched_keys, matched_scores, matched_velocities, metric='score', top_k=[5,4])
 
     # visualize and publish image
-    image = visualize_candidate(im, matched_boxes, matched_keys, matched_scores, matched_velocities, 'predictions', count)
+    image = visualize_candidate(im, matched_boxes, matched_keys, matched_scores, matched_velocities, 'predictions', count, score_th=0.1)
     send_image(image, pub_i)
 
     #send keypoints as twist
-    send_as_twist(matched_scores, matched_keys, send_image=False)
+    send_as_twist(matched_scores, matched_keys, send_image=True)
+
 
     # display twist value
     print("twist: {}".format(twist))
+    busy = False
     
     # outputs = predictor(im)
     # v = SPVisualizer(im[:, :, ::-1],
@@ -432,12 +457,12 @@ def template_matching(image, template_image='template.png' , method=cv2.TM_CCORR
 
     pub2.publish(twist_n)
 
-
 def cv2_imshow(im):
     im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
     plt.figure(figsize=(25, 8)), plt.imshow(im), plt.axis('off')
 
-def select_best_candidate(matched_boxes, matched_keys, matched_scores, matched_velocities, metric='score', top_k=[5,4]):
+
+def select_best_candidate(matched_boxes, matched_keys, matched_scores, matched_velocities, metric='score', top_k=[10,10]):
     # top_k = [5,2] which means selecting top 5 high score in 1st stage then selecting top 2 high-velocities ones in 2nd stage
 
     if metric == 'score':
@@ -445,8 +470,14 @@ def select_best_candidate(matched_boxes, matched_keys, matched_scores, matched_v
         if len(matched_boxes) == 0:
             return  matched_boxes, matched_keys, matched_scores, matched_velocities
         else:
-            arr = matched_scores.squeeze()
-            sort_idx = np.argsort(-arr[:, 1])
+            if matched_scores.shape[0] < top_k[1]:
+                return  matched_boxes, matched_keys, matched_scores, matched_velocities
+            else:
+                arr = matched_scores.squeeze()
+            try:
+                sort_idx = np.argsort(-arr[:, 1])
+            except:
+                sort_idx = 0
 
             matched_boxes = np.array(matched_boxes)[sort_idx]
             matched_keys = np.array(matched_keys)[sort_idx]
@@ -467,17 +498,31 @@ def select_best_candidate(matched_boxes, matched_keys, matched_scores, matched_v
 
         # sort by velocity
         arr = np.argsort(matched_velocities)
-        sort_idx = np.argsort(-arr[:, 1])
-        matched_boxes = np.array(matched_boxes)[sort_idx]
-        matched_keys = np.array(matched_keys)[sort_idx]
-        matched_scores = np.array(matched_scores)[sort_idx]
-        matched_velocities = np.array(matched_velocities)[sort_idx]
+        try:
+            sort_idx = np.argsort(-arr[:, 1])
+            matched_boxes = np.array(matched_boxes)[sort_idx]
+            matched_keys = np.array(matched_keys)[sort_idx]
+            matched_scores = np.array(matched_scores)[sort_idx]
+            matched_velocities = np.array(matched_velocities)[sort_idx]
 
-        # remove too learge velocity > 500
-        matched_boxes = matched_boxes[matched_velocities[:, 1] < 120]
-        matched_keys = matched_keys[matched_velocities[:, 1] < 120]
-        matched_scores = matched_scores[matched_velocities[:, 1] < 120]
-        matched_velocities = matched_velocities[matched_velocities[:, 1] < 120]
+            # remove too learge velocity > 500
+            matched_boxes = matched_boxes[matched_velocities[:, 1] < 120]
+            matched_keys = matched_keys[matched_velocities[:, 1] < 120]
+            matched_scores = matched_scores[matched_velocities[:, 1] < 120]
+            matched_velocities = matched_velocities[matched_velocities[:, 1] < 120]
+
+        except:
+            sort_idx = 0
+            matched_boxes = np.array(matched_boxes)
+            matched_keys = np.array(matched_keys)
+            matched_scores = np.array(matched_scores)
+            matched_velocities = np.array(matched_velocities)
+
+            # remove too learge velocity > 500
+            matched_boxes = matched_boxes[matched_velocities< 120]
+            matched_keys = matched_keys[matched_velocities < 120]
+            matched_scores = matched_scores[matched_velocities< 120]
+            matched_velocities = matched_velocities[matched_velocities < 120]
 
         # keep the top 2
         if len(matched_boxes) > top_k[1]:
@@ -493,57 +538,70 @@ def select_best_candidate(matched_boxes, matched_keys, matched_scores, matched_v
 
     return  matched_boxes, matched_keys, matched_scores, matched_velocities
 
-def visualize_candidate(im, matched_boxes, matched_keys, matched_scores, matched_velocities, output_dir, frame_id, score_th=0.4):
+
+def visualize_candidate(im, matched_boxes, matched_keys, matched_scores, matched_velocities, output_dir, frame_id, score_th=0.1):
     # visualize the matched boxes
 
     height, width = im.shape[:2]
     center = (width // 2, height // 2)
-       
-    for i in range(len(matched_boxes)):
-        box = matched_boxes[i][1]
-        key = matched_keys[i][1]
-        score = matched_scores[i][1]
-        velocity = matched_velocities[i][1]
+
+    for i in range(matched_boxes.shape[0]):
+        if  len(matched_boxes[i]) == 2:
+            box = matched_boxes[i][1]
+            key = matched_keys[i][1]
+        else:
+            box = matched_boxes[i]
+            key = matched_keys[i]
+
+        try:
+            score = matched_scores[i][1]
+        except:
+            if len(matched_scores) > 0:
+                score = matched_scores[0]
+            else:
+                score = matched_scores[0]
+        try:
+            velocity = matched_velocities[i][1]
+        except:
+            velocity = matched_velocities[0]
 
         if score < score_th:
             continue
+
         #round up the score 2 decimal
-        score = round(score, 2)
-        velocity = round(velocity, 2)
+        score = score.round(2)
+        velocity = velocity.round(2)
+
         # if rect is out of image, skip it
         if int(box[0]) < 0 or int(box[1]) < 0 or int(box[2]) > width or int(box[3]) > height:
             continue
         else:
-            #cv2.rectangle(im, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (0, 255, 0), 2)
-            if int(box[1])- 120 > 0:
+            if int(box[1]) > 120:
                 sub = 120
             else:
                 sub = 0
-            cv2.putText(im, "#"+str(i + 1 ),        (int(box[0]), int(box[1])- sub),      cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-            cv2.putText(im, "Score: "+ str(score), (int(box[0]), int(box[1]) +  120), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
+            cv2.putText(im, "#"+str(i + 1),        (int(box[0]), int(box[1]) - sub),      cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
+            cv2.putText(im, "Score: " + str(score), (int(box[0]), int(box[1]) + 120), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
             cv2.putText(im, "vel: " + str(velocity), (int(box[0]), int(box[1]) + 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-        
+
         points = []
         for j in range(len(key)):
             cv2.circle(im, (int(key[j][0]), int(key[j][1])), 20, (255, 0, 0), -1)
-    
             cv2.line(im, (int(key[0][0]), int(key[0][1])),  (int(key[1][0]), int(key[1][1])), (0, 0, 255), 2)
             cv2.line(im, (int(key[1][0]), int(key[1][1])),  (int(key[2][0]), int(key[2][1])), (0, 0, 255), 2)
             cv2.line(im, (int(key[2][0]), int(key[2][1])),  (int(key[3][0]), int(key[3][1])), (0, 0, 255), 2)
-            
             points.append((int(key[j][0]), int(key[j][1])))
-    
-# Add some padding to the rectangle size
 
+# Add some padding to the rectangle size
         rect = cv2.minAreaRect(np.array(points))
-        
+
         padding = 200  # adjust this value as needed
         rect = (rect[0], (rect[1][0] + padding, rect[1][1] + padding), rect[2])
 
         # Draw the rectangle on the image
         box = cv2.boxPoints(rect)
         box = np.intp(box)
-        cv2.drawContours(im, [box], 0, (0,255,0), thickness=10)
+        cv2.drawContours(im, [box], 0, (0, 255, 0), thickness=10)
 
         # matched_boxes = np.array(matched_boxes)
         # matched_keys = np.array(matched_keys)
@@ -557,6 +615,7 @@ def visualize_candidate(im, matched_boxes, matched_keys, matched_scores, matched
     im = cv2.resize(im, (640, 480))
     # save the image
     cv2.imwrite(os.path.join(output_dir, 'frame_{}.png'.format(frame_id)), im)
+    return im
 
 
 
@@ -566,6 +625,7 @@ def test_callback_ros(im, fps=DEFAULT_FPS, METRIC="hybrid", hybrid_lambda = 0.7)
     global pre_scores
     # Threshold of Life frame
     linger_length = 4
+    
     outputs, v = core_predict(im, MetadataCatalog)
     im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
     #plt.figure(figsize=(25, 8)), plt.imshow(im), plt.axis('off')
@@ -573,9 +633,10 @@ def test_callback_ros(im, fps=DEFAULT_FPS, METRIC="hybrid", hybrid_lambda = 0.7)
     #cv2_imshow(v.get_image()[:, :, ::-1])
     v = cv2.cvtColor(v, cv2.COLOR_BGR2RGB)
     #plt.figure(figsize=(10, 4)), plt.imshow(v), plt.axis('off')
-    boxes = np.array(outputs["instances"].pred_boxes.tensor)
-    keypoints = np.array(outputs["instances"].pred_keypoints.numpy())
-    scores = np.array(outputs["instances"].scores.numpy()).reshape( -1, 1)
+    boxes = np.array(outputs["instances"].pred_boxes.tensor.cpu())
+    
+    keypoints = np.array(outputs["instances"].pred_keypoints.cpu().numpy())
+    scores = np.array(outputs["instances"].scores.cpu().numpy()).reshape(-1, 1)
     # chage (n,) -> (n,1)
 
     # black_list of empty matrix
@@ -810,7 +871,8 @@ def predict(cfg,
     global pub
     global predictor
     global pre_boxes
-    assert os.path.exists(image_path), "Image not found at {}".format(image_path)
+    global busy
+    #assert os.path.exists(image_path), "Image not found at {}".format(image_path)
     # assert os.path.exists(config_file), "Config file not found at {}".format(config_file)
 
     if model_weight is None:
@@ -828,31 +890,37 @@ def predict(cfg,
     cfg.MODEL.KEYPOINT_ON = True
     # cfg.MODEL.DEVICE = device
     # use cpu not gpu
-    cfg.MODEL.DEVICE = "cpu"
+    #cfg.MODEL.DEVICE = "cpu"
+    cfg.MODEL.DEVICE = device
     cfg.TEST.KEYPOINT_OKS_SIGMAS = np.array([1,2,2,2], dtype=float).tolist()
     cfg.OUTPUT_DIR = output_dir
     predictor = DefaultPredictor(cfg)
     cfg.DATALOADER.NUM_WORKERS = 0
 
-    ROS = False
+    
     if mode == "ROS":
         ROS = True
-
-    VIDEO = False
+        VIDEO = False
+    
     if mode == "VIDEO":
         VIDEO = "tst.avi"
+        ROS = False
 
     if ROS:
         init_ros()
-        r = rospy.Rate(fps)
+        busy = False
+        #r = rospy.Rate(fps)
         sub = rospy.Subscriber(sub_image_node, Image, callback_ros)
-        r.sleep()
+        #r.sleep()
         rospy.spin()
     else:
         if VIDEO:
             cap = cv2.VideoCapture(VIDEO)
             while cap.isOpened():
                 ret, im = cap.read()
+
+                im = cv2.resize(im, (im.shape[0]//SCALE, im.shape[1]//SCALE))
+
                 outputs, v = core_predict(im, MetadataCatalog)
                 cv2_imshow(v.get_image()[:, :, ::-1])
                 keypoints = outputs["instances"].pred_keypoints
@@ -904,7 +972,7 @@ if __name__ == "__main__":
     parser.add_argument('--sub_image_node', type=str, default="/stcamera_node/dev_142122B11642/image_raw")
     # parser.add_argument('--sub_image_node', type=str, default="/image_data")
     #parser.add_argument('--sub_image_node', type=str, default="sperm_test_image")
-    parser.add_argument('--mode', type=str, default="IMG")
+    parser.add_argument('--mode', type=str, default="ROS", help="VIDEO ROS IMAGE")
     parser.add_argument('--fps', type=int, default=DEFAULT_FPS, help="frame per second")
     args = parser.parse_args()
     mode = args.mode
